@@ -7,7 +7,13 @@ const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
 const { PostHog } = require('posthog-node');
 const { machineIdSync } = require('node-machine-id');
-const config = require('./config');
+// config.js is gitignored (holds analytics keys). Fall back to the template so a fresh checkout still starts.
+let config;
+try {
+  config = require('./config');
+} catch (err) {
+  config = require('./config.example');
+}
 
 // Configure auto-updater
 autoUpdater.autoDownload = true;
@@ -16,17 +22,21 @@ autoUpdater.logger = require('electron-log');
 autoUpdater.logger.transports.file.level = 'info';
 
 // Initialize PostHog (analytics + server-side feature flags)
-const posthog = new PostHog(config.posthog.apiKey, {
-  host: config.posthog.host,
-  flushAt: config.posthog.flushAt,
-  flushInterval: config.posthog.flushInterval,
+// Analytics are only active when real keys are configured; with the placeholder keys it is a no-op.
+const analyticsEnabled = !!config.posthog.apiKey && !/YOUR_/.test(config.posthog.apiKey);
+const posthog = analyticsEnabled
+  ? new PostHog(config.posthog.apiKey, {
+      host: config.posthog.host,
+      flushAt: config.posthog.flushAt,
+      flushInterval: config.posthog.flushInterval,
 
-  // Critical for feature flags: allows server-side evaluation
-  personalApiKey: config.posthog.personalApiKey,
+      // Critical for feature flags: allows server-side evaluation
+      personalApiKey: config.posthog.personalApiKey,
 
-  // Poll feature flag definitions regularly for local evaluation
-  featureFlagsPollingInterval: 30_000, // 30s; fine for our use case
-});
+      // Poll feature flag definitions regularly for local evaluation
+      featureFlagsPollingInterval: 30_000, // 30s; fine for our use case
+    })
+  : { capture() {}, getAllFlags: async () => ({}), shutdown: async () => {} };
 
 // Get anonymous machine ID
 let deviceId;

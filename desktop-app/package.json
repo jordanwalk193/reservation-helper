@@ -10,14 +10,15 @@
     "dist:mac": "electron-builder --mac dmg zip",
     "dist:win": "electron-builder --win nsis --x64",
     "dist:win-arm": "electron-builder --win nsis --arm64",
-    "publish": "electron-builder --publish always"
+    "publish": "electron-builder --publish always",
+    "dist:linux": "electron-builder --linux deb AppImage"
   },
   "build": {
     "appId": "com.campingthing.reservationhelper",
     "productName": "Reservation Helper",
     "publish": {
       "provider": "github",
-      "owner": "mrado1",
+      "owner": "jordanwalk193",
       "repo": "reservation-helper",
       "private": true,
       "releaseType": "release"
@@ -27,7 +28,8 @@
       "preload.js",
       "renderer/**/*",
       "package.json",
-      "config.js"
+      "config.js",
+      "config.example.js"
     ],
     "mac": {
       "category": "public.app-category.utilities",
@@ -68,9 +70,13 @@
     },
     "linux": {
       "target": [
+        "deb",
         "AppImage"
       ],
-      "category": "Utility"
+      "category": "Utility",
+      "icon": "build/reservation-helper-logo.png",
+      "maintainer": "Reservation Helper <noreply@example.com>",
+      "synopsis": "Campsite booking helper"
     },
     "directories": {
       "buildResources": "build",
@@ -88,5 +94,6 @@
     "electron-updater": "^6.6.2",
     "node-machine-id": "^1.1.12",
     "posthog-node": "^5.11.2"
-  }
+  },
+  "homepage": "https://github.com/jordanwalk193/reservation-helper"
 }

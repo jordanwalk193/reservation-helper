@@ -45,6 +45,26 @@ A desktop application to help secure hard-to-get campsite reservations on Reserv
 
 **Note**: Requires Windows 10 or later (x64).
 
+### Linux (Kubuntu / Ubuntu / Debian)
+
+Build the installer on any Linux machine (needs Node.js 18+):
+
+```bash
+cd desktop-app
+npm install
+npm run dist:linux
+```
+
+Then install the `.deb` from `desktop-app/dist/`:
+
+```bash
+sudo apt install ./dist/reservation-helper_*_amd64.deb
+```
+
+Launch **Reservation Helper** from the application menu. An `.AppImage` is also produced; on Ubuntu 24.04+ / Kubuntu 24.04+ the `.deb` is recommended because the AppImage may need `--no-sandbox`.
+
+To just try it without installing: `cd desktop-app && npm install && npm start`.
+
 ## Usage
 
 ### Step 1: Sign In
