@@ -28,6 +28,29 @@ const pollingElapsedEl = document.getElementById('pollingElapsed');
 const pollingLastStatusEl = document.getElementById('pollingLastStatus');
 const pollingMessageEl = document.getElementById('pollingMessage');
 const raView = document.getElementById('raView');
+const plainStatusEl = document.getElementById('plainStatus');
+const reloadPageBtn = document.getElementById('reloadPageBtn');
+
+// Developer details are hidden by default; Ctrl+Shift+D toggles them.
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+    document.body.classList.toggle('dev');
+  }
+});
+reloadPageBtn.addEventListener('click', () => {
+  try { raView.reload(); } catch (err) { console.error('Reload failed:', err); }
+});
+
+function setPlainStatus(text, tone) {
+  const tones = {
+    info: 'border-slate-200 bg-slate-50 text-slate-800',
+    working: 'border-amber-200 bg-amber-50 text-amber-900',
+    action: 'border-red-300 bg-red-50 text-red-900',
+    good: 'border-emerald-300 bg-emerald-50 text-emerald-900'
+  };
+  plainStatusEl.textContent = text;
+  plainStatusEl.className = 'rounded-lg border p-4 ' + (tones[tone] || tones.info);
+}
 const backBtn = document.getElementById('backBtn');
 const forwardBtn = document.getElementById('forwardBtn');
 const refreshBtn = document.getElementById('refreshBtn');
@@ -1251,6 +1274,20 @@ window.ra.onNavigateToCart(() => {
 
 // Subscribe to polling status updates
 window.ra.onPollingStatus((status) => {
+  // Plain-language banner + reload button for non-technical users
+  reloadPageBtn.classList.toggle('hidden', !status.needsHuman);
+  if (status.needsHuman) {
+    setPlainStatus('ACTION NEEDED: Reserve America wants to check you are a person. Tick the box or press and hold the button in the window on the right. Booking will carry on by itself.', 'action');
+  } else if (status.state === 'success') {
+    setPlainStatus('Got it! The campsite is in your cart. Now click the cart in the window on the right and finish paying. Do this quickly, the cart is only held for a short time.', 'good');
+  } else if (status.state === 'polling') {
+    setPlainStatus('Working on it... Please keep this window open and do not click anything.', 'working');
+  } else if (status.state === 'error') {
+    setPlainStatus('Something stopped the booking: ' + (status.serverMessage || status.lastMessage || 'please try again.'), 'action');
+  } else if (status.state === 'stopped') {
+    setPlainStatus('Stopped. Press the big button when you are ready to try again.', 'info');
+  }
+
   // Update state with color coding
   pollingStateEl.textContent = status.state.charAt(0).toUpperCase() + status.state.slice(1);
   
