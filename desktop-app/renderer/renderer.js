@@ -1279,7 +1279,11 @@ window.ra.onPollingStatus((status) => {
   
   // Human-readable status messages with better categorization
   let statusText = '—';
-  if (status.lastHttpStatus) {
+  if (status.needsHuman) {
+    statusText = 'Action needed';
+    pollingStateEl.textContent = 'Waiting for you';
+    pollingStateEl.className = 'text-red-700 font-bold';
+  } else if (status.lastHttpStatus) {
     if (status.lastHttpStatus === 200) {
       statusText = 'Success';
     } else if (status.lastHttpStatus === 417) {

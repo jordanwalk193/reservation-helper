@@ -177,8 +177,8 @@ function addLogEntry(entry) {
 
 // M7: Settings (defaults - now fixed, no front-end override)
 let pollingSettings = {
-  cadenceMs: 10,              // 10ms between ticks
-  maxConcurrent: 100,         // cap at ~100 in-flight requests
+  cadenceMs: 400,             // ~2.5 ticks/sec (was 10ms; aggressive rates trigger bot challenges)
+  maxConcurrent: 2,           // small number of in-flight requests
   maxDurationMs: 5 * 60 * 1000, // 5 minutes
   throttlePauseMin: 1000,     // 1s min pause
   throttlePauseMax: 2000,     // 2s max pause
@@ -563,11 +563,18 @@ async function sendAddToCartRequest() {
       return; // Continue polling
     }
     
+    // Bot-check / captcha challenge: pause and ask a human to solve it in the embedded browser.
+    // We never try to solve or bypass the challenge automatically.
+    if (status === 403 || status === 405 || looksLikeChallenge(bodyText)) {
+      pauseForHumanChallenge(status);
+      return;
+    }
+
     // Terminal errors (auth)
-    if (status === 401 || status === 403) {
+    if (status === 401) {
       stopPollingWorker();
       pollingState = 'error';
-      
+
       // M10: Track booking error
       trackEvent('booking_error', {
         facility_id: pollingConfig.facilityID,
@@ -576,18 +583,18 @@ async function sendAddToCartRequest() {
         http_status: status,
         error_message: `Authentication failed (HTTP ${status})`
       });
-      
+
       broadcastPollingStatus({
         state: 'error',
         requestCount,
         elapsedMs: Date.now() - pollingStartTime,
         lastHttpStatus: status,
-        lastMessage: 'Auth error: invalid or expired session',
+        lastMessage: 'Signed out: please sign in again in the browser, then press Start.',
         lastUpdated: Date.now()
       });
       return;
     }
-    
+
     // Check specific error codes in faults array (417 responses)
     if (status === 417 && body.faults && body.faults.length > 0) {
       const fault = body.faults[0];
@@ -894,6 +901,87 @@ async function runPollingTick() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Human-in-the-loop challenge handling
+// ─────────────────────────────────────────────────────────────────────────────
+let challengeWatcher = null;
+
+function looksLikeChallenge(text) {
+  return /captcha|challenge|are you a (human|robot)|verify you are|access denied|px-captcha|datadome|akamai/i.test(text || '');
+}
+
+async function readSessionTokens() {
+  const cookies = await session.defaultSession.cookies.get({ domain: 'www.reserveamerica.com' });
+  const idToken = cookies.find(c => c.name === 'idToken')?.value || '';
+  let a1Data = cookies.find(c => c.name === 'a1Data')?.value || '';
+  if (/%7B/i.test(a1Data)) a1Data = decodeURIComponent(a1Data);
+  return { idToken, a1Data };
+}
+
+function pauseForHumanChallenge(httpStatus) {
+  if (challengeWatcher || pollingState !== 'polling') return; // already waiting
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+    pollingInterval = null;
+  }
+  const startTokens = `${pollingConfig.idToken}|${pollingConfig.a1Data}`;
+  const pausedAt = Date.now();
+
+  broadcastPollingStatus({
+    state: 'polling',
+    requestCount,
+    elapsedMs: Date.now() - pollingStartTime,
+    lastHttpStatus: httpStatus,
+    needsHuman: true,
+    lastMessage: 'ACTION NEEDED: Reserve America is asking you to verify you are a person. ' +
+      'Complete the check in the browser on the right (tick the box / solve the puzzle). Booking resumes automatically.',
+    lastUpdated: Date.now()
+  });
+
+  // Bring the window to the front and send the embedded browser to a page where the check can be completed
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.webContents.send('ra:navigateToCart');
+    }
+  } catch {}
+
+  // Resume when the session cookies change (challenge solved) or every 20s to retry once
+  challengeWatcher = setInterval(async () => {
+    try {
+      if (stopRequested || pollingState !== 'polling') {
+        clearInterval(challengeWatcher); challengeWatcher = null; return;
+      }
+      if (Date.now() - pollingStartTime > pollingConfig.maxDurationMs) {
+        clearInterval(challengeWatcher); challengeWatcher = null;
+        stopPollingWorker();
+        return;
+      }
+      const t = await readSessionTokens();
+      const changed = `${t.idToken}|${t.a1Data}` !== startTokens;
+      if (changed || Date.now() - pausedAt > 20000) {
+        clearInterval(challengeWatcher); challengeWatcher = null;
+        if (t.idToken && t.a1Data) {
+          pollingConfig.idToken = t.idToken;
+          pollingConfig.a1Data = t.a1Data;
+        }
+        broadcastPollingStatus({
+          state: 'polling',
+          requestCount,
+          elapsedMs: Date.now() - pollingStartTime,
+          lastMessage: 'Trying again...',
+          lastUpdated: Date.now()
+        });
+        pollingInterval = setInterval(() => runPollingTick(), pollingConfig.cadenceMs);
+      }
+    } catch (err) {
+      console.error('[Challenge] watcher error:', err.message);
+    }
+  }, 2000);
+}
+
 async function startPollingWorker() {
   pollingState = 'polling';
   pollingStartTime = Date.now();
@@ -962,6 +1050,10 @@ async function startPollingWorker() {
 
 function stopPollingWorker() {
   stopRequested = true;
+  if (challengeWatcher) {
+    clearInterval(challengeWatcher);
+    challengeWatcher = null;
+  }
   if (pollingInterval) {
     clearInterval(pollingInterval);
     pollingInterval = null;
