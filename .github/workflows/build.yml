@@ -1,0 +1,54 @@
+name: Build installers
+
+# Builds Windows and Linux installers and attaches them to a release.
+# Runs when a release is published, or by hand (Actions tab -> Run workflow) for an existing tag.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to attach the installers to (e.g. v0.4.7)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: --win nsis --x64
+            files: dist/*.exe dist/*.exe.blockmap dist/latest.yml
+          - os: ubuntu-latest
+            target: --linux deb AppImage
+            files: dist/*.AppImage dist/*.deb dist/latest-linux.yml
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop-app
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop-app/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Build
+        run: >
+          npx electron-builder ${{ matrix.target }} --publish never
+          -c.publish.private=false
+          '-c.nsis.artifactName=Reservation-Helper-Setup-${version}.${ext}'
+          '-c.appImage.artifactName=Reservation-Helper-${version}.${ext}'
+      - name: Attach to release
+        run: gh release upload "$TAG" ${{ matrix.files }} --clobber -R "$GITHUB_REPOSITORY"
